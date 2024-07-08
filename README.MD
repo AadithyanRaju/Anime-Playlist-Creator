@@ -7,7 +7,7 @@ This project uses [anipy-cli](https://github.com/sdaqo/anipy-cli) API. For furth
 ## How to run?
 
 ```bash
-git clone repo 
-cd folder
+git clone https://github.com/AadithyanRaju/Anime-Playlist-Creator.git
+cd Anime-Playlist-Creator
 python3 main.py
 ```

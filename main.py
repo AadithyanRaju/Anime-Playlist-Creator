@@ -23,6 +23,9 @@ def titleGen(index, letter='E'):
     if index == 9:return f'{letter}10' if letter =="E" else f'{letter}09'
     return f'{letter}{index+1}' if letter == 'E' else f'{letter}{index}'
 
+def removeSymbols(string):
+    return ''.join(e for e in string if e.isalnum() or e.isspace())
+
 #Banner
 try:
     import bannerchar
@@ -122,7 +125,7 @@ listOut=[i.url for i in eps]
 urlArr = listOut
 dubORsub = 'DUB' if ver else 'SUB'
 if len(urlArr) <3 :exit()
-title = selectedAnime.get_info().name
+title = removeSymbols(selectedAnime.get_info().name)
 
 #Creating XSPF File
 f=open(f'{title} {titleGen(season,"S")} {dubORsub}.xspf','w')

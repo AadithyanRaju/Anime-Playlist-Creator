@@ -33,12 +33,23 @@ ggp = GoGoProvider()
 
 
 name = input('Enter Anime Name: ')
-season = int(input('Season: '))
-ver = input("Dub or Sub (d/S):")
+while True:
+    try:
+        season = int(input('Season: '))
+        break
+    except:
+        print('Season input (Int: 1, 2, 3, ...)')
 
+ver = None
+while ver not in ['d','dub','Dub','D','s','sub','S','Sub','']:
+    ver = input("Dub or Sub (d/S):")
+ver = True if ver in ['d','dub','Dub','D'] else False
 
-ver = True if ver in 'dD' else False
 searhResults=provider.get_search(name)
+if not searhResults:
+    print(f'No anime with name "{name}" found!')
+    exit(0)
+
 print("Yugen")
 anime=[]
 for r in searhResults:anime.append(Anime(provider, r.name, r.identifier, r.languages))

@@ -16,7 +16,6 @@ except:
     except:
         print("Error: Couldn't install anipy-api")
         exit(1)
-import bannerchar
 
 #Functions
 def titleGen(index, letter='E'):
@@ -26,6 +25,7 @@ def titleGen(index, letter='E'):
 
 #Banner
 try:
+    import bannerchar
     print(bannerchar.bannerWord('ANIME'),end='\r')
     print(bannerchar.bannerWord('PLAYLIST'),end='\r')
     print(bannerchar.bannerWord('CREATOR'),end='\r')

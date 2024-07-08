@@ -17,9 +17,9 @@ except:
 import bannerchar
 
 def titleGen(index, letter='E'):
-    if index in range(9):return f'{letter}0{index+1}' if letter == 'E' else f'{letter}0{index+1}'
+    if index in range(9):return f'{letter}0{index+1}' if letter == 'E' else f'{letter}0{index}'
     if index == 9:return f'{letter}10' if letter =="E" else f'{letter}09'
-    return f'{letter}{index+1 if letter == 'E' else index}'
+    return f'{letter}{index+1}' if letter == 'E' else f'{letter}{index}'
 
 try:
     print(bannerchar.bannerWord('ANIME'),end='\r')

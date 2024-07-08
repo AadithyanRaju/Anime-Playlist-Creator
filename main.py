@@ -102,7 +102,6 @@ urlArr = listOut
 dubORsub = 'DUB' if ver else 'SUB'
 if len(urlArr) <3 :exit()
 title = selectedAnime.get_info().name
-urlArr = urlArr
 
 f=open(f'{title} {titleGen(season,"S")} {dubORsub}.xspf','w')
 f.write(f'''<?xml version="1.0" encoding="UTF-8"?>\n<playlist xmlns="http://xspf.org/ns/0/" xmlns:vlc="http://www.videolan.org/vlc/playlist/ns/0/" version="1">\n	<title>{title} {titleGen(season,"S")}</title>\n    <trackList>''')

@@ -2,6 +2,8 @@ import sys
 import os
 import concurrent.futures
 from PyQt5.QtWidgets import (QApplication, QWidget, QLabel, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout, QTextEdit, QProgressBar, QMessageBox, QComboBox)
+from PyQt5.QtGui import QFont
+from PyQt5.QtCore import Qt, QObject, pyqtSignal
 from anipy_api.provider.providers.yugen_provider import YugenProvider
 from anipy_api.provider.providers.gogo_provider import GoGoProvider
 from anipy_api.anime import Anime
@@ -15,16 +17,22 @@ def titleGen(index, letter='E'):
 def removeSymbols(string):
     return ''.join(e for e in string if e.isalnum() or e.isspace())
 
-def fetch_episode(selectedAnime, e, selectedLanguage):
+def fetch_episode(selectedAnime, e, selectedLanguage, signals):
     try:
         video = selectedAnime.get_video(
             episode=e,
             lang=selectedLanguage,
             preferred_quality=1080
         )
+        signals.update_output.emit(f'Episode {e} succeeded\n')
         return e, video
     except Exception as exc:
+        signals.update_output.emit(f'Episode {e} failed: {exc}\n')
         return e, None
+
+class WorkerSignals(QObject):
+    update_progress = pyqtSignal(int)
+    update_output = pyqtSignal(str)
 
 class AnimeDownloaderGUI(QWidget):
     def __init__(self):
@@ -36,10 +44,24 @@ class AnimeDownloaderGUI(QWidget):
         self.ggp = GoGoProvider()
         self.anime_list = []
 
+        # Worker signals
+        self.signals = WorkerSignals()
+
     def initUI(self):
+        # Font style for banners
+        banner_font = QFont()
+        banner_font.setBold(True)
+        banner_font.setPointSize(24)
+
+        # Banner Labels
+        banner_label1 = QLabel('ANIME PLAYLIST CREATOR')
+        banner_label1.setAlignment(Qt.AlignCenter)
+        banner_label1.setFont(banner_font)
+
         # Layouts
         vbox = QVBoxLayout()
-        
+        vbox.addWidget(banner_label1)
+
         # Anime Name
         hbox1 = QHBoxLayout()
         lbl1 = QLabel('Enter Anime Name:')
@@ -51,15 +73,18 @@ class AnimeDownloaderGUI(QWidget):
         hbox2 = QHBoxLayout()
         lbl2 = QLabel('Season:')
         self.seasonEdit = QLineEdit()
+        self.seasonEdit.setText('1')
         hbox2.addWidget(lbl2)
         hbox2.addWidget(self.seasonEdit)
         
         # Version (Dub/Sub)
         hbox3 = QHBoxLayout()
-        lbl3 = QLabel('Dub or Sub (d/S):')
-        self.verEdit = QLineEdit()
+        lbl3 = QLabel('Dub or Sub:')
+        self.verComboBox = QComboBox()
+        self.verComboBox.addItems(['Sub', 'Dub'])
+        self.verComboBox.setCurrentText('Sub')
         hbox3.addWidget(lbl3)
-        hbox3.addWidget(self.verEdit)
+        hbox3.addWidget(self.verComboBox)
         
         # Search Button
         self.searchBtn = QPushButton('Search', self)
@@ -74,9 +99,12 @@ class AnimeDownloaderGUI(QWidget):
         
         # Progress
         self.progress = QProgressBar(self)
+        self.progress.setMinimum(0)
+        self.progress.setMaximum(100)
         
         # Output
         self.output = QTextEdit(self)
+        self.output.setReadOnly(True)
         
         # Add layouts to the main layout
         vbox.addLayout(hbox1)
@@ -94,6 +122,11 @@ class AnimeDownloaderGUI(QWidget):
         self.setWindowTitle('Anime Playlist Creator')
         self.setGeometry(300, 300, 600, 400)
         self.show()
+
+        # Quit Button
+        self.quitBtn = QPushButton('Quit', self)
+        self.quitBtn.clicked.connect(self.close)
+        vbox.addWidget(self.quitBtn)
 
     def search_anime(self):
         name = self.nameEdit.text()
@@ -130,12 +163,12 @@ class AnimeDownloaderGUI(QWidget):
             QMessageBox.critical(self, "Invalid Input", "Season must be an integer.")
             return
 
-        ver = self.verEdit.text().lower()
-        if ver not in ['d', 'dub', 's', 'sub', '']:
-            QMessageBox.critical(self, "Invalid Input", "Version must be 'd' or 's'.")
+        ver = self.verComboBox.currentText().lower()
+        if ver not in ['dub', 'sub']:
+            QMessageBox.critical(self, "Invalid Input", "Version must be 'Dub' or 'Sub'.")
             return
 
-        ver = True if ver in ['d', 'dub'] else False
+        ver = True if ver == 'dub' else False
 
         self.progress.setValue(0)
         self.output.clear()
@@ -148,8 +181,15 @@ class AnimeDownloaderGUI(QWidget):
         self.output.append("Gathering URLs...\n")
         eps = {}
         failed = []
+
+        def update_progress(value):
+            self.signals.update_progress.emit(value)
+
+        def update_output(text):
+            self.signals.update_output.emit(text)
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-            future_to_episode = {executor.submit(fetch_episode, selectedAnime, e, selectedLanguage): e for e in episodes}
+            future_to_episode = {executor.submit(fetch_episode, selectedAnime, e, selectedLanguage, self.signals): e for e in episodes}
             for future in concurrent.futures.as_completed(future_to_episode):
                 episode = future_to_episode[future]
                 try:
@@ -159,13 +199,16 @@ class AnimeDownloaderGUI(QWidget):
                     else:
                         failed.append(ep_num)
                 except Exception as exc:
-                    self.output.append(f'Episode {episode} generated an exception: {exc}\n')
+                    update_output(f'Episode {episode} generated an exception: {exc}\n')
                     failed.append(episode)
+
+                progress_value = len(eps) / len(episodes) * 100
+                update_progress(progress_value)
 
         # Retry for failed episodes
         if failed:
-            self.output.append(f'Failed: {failed}\n')
-            self.output.append("Retrying Failed\n")
+            update_output(f'Failed: {failed}\n')
+            update_output("Retrying Failed\n")
             ggsr = self.ggp.get_search(selectedAnime.name)
             gga = []
             g = None
@@ -184,7 +227,7 @@ class AnimeDownloaderGUI(QWidget):
 
             if failed and g is not None:
                 with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-                    future_to_episode = {executor.submit(fetch_episode, ggsa, e, selectedLanguage): e for e in failed}
+                    future_to_episode = {executor.submit(fetch_episode, ggsa, e, selectedLanguage, self.signals): e for e in failed}
                     for future in concurrent.futures.as_completed(future_to_episode):
                         episode = future_to_episode[future]
                         try:
@@ -194,11 +237,14 @@ class AnimeDownloaderGUI(QWidget):
                             else:
                                 newFail.append(ep_num)
                         except Exception as exc:
-                            self.output.append(f'Episode {episode} generated an exception: {exc}\n')
+                            update_output(f'Episode {episode} generated an exception: {exc}\n')
                             newFail.append(episode)
 
+                        progress_value = len(eps) / len(episodes) * 100
+                        update_progress(progress_value)
+
             if newFail:
-                self.output.append(f"New Fails: {newFail}\n")
+                update_output(f"New Fails: {newFail}\n")
                 return
 
         # Setting array of URL
@@ -211,11 +257,20 @@ class AnimeDownloaderGUI(QWidget):
         # Creating XSPF File
         file_path = f'{title} {titleGen(season, "S")} {dubORsub}.xspf'
         with open(file_path, 'w') as f:
-            f.write(f'''<?xml version="1.0" encoding="UTF-8"?>\n<playlist xmlns="http://xspf.org/ns/0/" xmlns:vlc="http://www.videolan.org/vlc/playlist/ns/0/" version="1">\n\t<title>{title} {titleGen(season, "S")}</title>\n    <trackList>''')
+            f.write(f'''<?xml version="1.0" encoding="UTF-8"?>\n<playlist xmlns="http://xspf.org/ns/0/" xmlns:vlc="http://www.videolan.org/vlc/playlist/ns/0/" version="1">\n    <title>{title} {titleGen(season, "S")}</title>\n    <trackList>''')
             for i, url in enumerate(urlArr):
-                f.write(f'''\n        <track>\n            <location>{url}</location>\n            <title>{titleGen(season, "S")} {titleGen(i)}</title>\n\t\t\t<extension application="http://www.videolan.org/vlc/playlist/0">\n\t\t\t\t<vlc:id>{i}</vlc:id>\n\t\t\t\t<vlc:option>network-caching=1000</vlc:option>\n\t\t\t</extension>\n        </track>''')
+                f.write(f'''\n        <track>\n            <location>{url}</location>\n            <title>{titleGen(season, "S")} {titleGen(i)}</title>\n            <extension application="http://www.videolan.org/vlc/playlist/0">\n                <vlc:id>{i}</vlc:id>\n                <vlc:option>network-caching=1000</vlc:option>\n            </extension>\n        </track>''')
             f.write('''\n    </trackList>\n</playlist>''')
-        self.output.append(f'Playlist created: {file_path}\n')
+
+        update_output(f'Playlist created: {file_path}\n')
+        update_output('Open the file with VLC\n')
+        update_output(f'File Path: {os.path.abspath(file_path)}\n')
+
+    def update_progress_bar(self, value):
+        self.progress.setValue(int(value))
+
+    def update_output_text(self, text):
+        self.output.append(text)
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)

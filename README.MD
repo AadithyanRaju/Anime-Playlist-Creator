@@ -10,7 +10,8 @@ This project uses [anipy-cli](https://github.com/sdaqo/anipy-cli) API. For furth
 ```bash
 git clone https://github.com/AadithyanRaju/Anime-Playlist-Creator.git
 cd Anime-Playlist-Creator
-python3 main.py
+pip install -r requirements.txt
+python3 gui.py
 ```
 
 After running the code open the `.xspf` file at current directory in VLC.

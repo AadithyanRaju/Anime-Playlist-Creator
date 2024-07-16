@@ -268,12 +268,9 @@ class AnimeDownloaderGUI(QWidget):
                 return
 
         # Setting array of URLs
-        urlArr = [v.url for v in eps.values()]
+        urlArr = [eps[e].url for e in sorted(eps.keys())]
         dubORsub = 'DUB' if ver else 'SUB'
-        if len(urlArr) < 3:
-            QMessageBox.warning(self, "Too Few Episodes", "The selected anime has too few episodes to create a playlist.")
-            return
-
+        
         title = removeSymbols(selectedAnime.get_info().name)
         file_path = f'{title} {titleGen(season, "S")} {dubORsub}.xspf'
 

@@ -149,8 +149,6 @@ if newFail:
 # Setting array of URL
 urlArr = [eps[e].url for e in sorted(eps.keys())]
 dubORsub = 'DUB' if ver else 'SUB'
-if len(urlArr) < 3:
-    exit()
 title = removeSymbols(selectedAnime.get_info().name)
 
 # Creating XSPF File

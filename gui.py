@@ -5,7 +5,7 @@ from PyQt5.QtWidgets import (
     QApplication, QWidget, QLabel, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout, QTextEdit, QProgressBar, QMessageBox, QComboBox
 )
 from PyQt5.QtGui import QFont
-from PyQt5.QtCore import Qt, QObject, pyqtSignal, pyqtSlot, QRunnable, QThreadPool
+from PyQt5.QtCore import Qt, QObject, pyqtSignal, pyqtSlot, QThreadPool, QRunnable
 from anipy_api.provider.providers.yugen_provider import YugenProvider
 from anipy_api.provider.providers.gogo_provider import GoGoProvider
 from anipy_api.anime import Anime
@@ -49,6 +49,7 @@ class AnimeDownloaderGUI(QWidget):
         # Worker signals
         self.signals = WorkerSignals()
         self.thread_pool = QThreadPool()
+        self.thread_pool.setMaxThreadCount(5)  # Default max threads
         self.signals.update_progress.connect(self.update_progress_bar)
         self.signals.update_output.connect(self.update_output_text)
 
@@ -70,93 +71,94 @@ class AnimeDownloaderGUI(QWidget):
         vbox.addWidget(banner_label)
 
         # Anime Name
-        hbox1 = QHBoxLayout()
-        lbl1 = QLabel('Enter Anime Name:')
         self.nameEdit = QLineEdit()
-        hbox1.addWidget(lbl1)
-        hbox1.addWidget(self.nameEdit)
-        
+        vbox.addLayout(self.create_label_edit_pair('Enter Anime Name:', self.nameEdit))
+
         # Season
-        hbox2 = QHBoxLayout()
-        lbl2 = QLabel('Season:')
-        self.seasonEdit = QLineEdit()
-        self.seasonEdit.setText('1')  # Set default value to 1
-        hbox2.addWidget(lbl2)
-        hbox2.addWidget(self.seasonEdit)
-        
+        self.seasonEdit = QLineEdit('1')
+        vbox.addLayout(self.create_label_edit_pair('Season:', self.seasonEdit))
+
         # Version (Dub/Sub)
-        hbox3 = QHBoxLayout()
-        lbl3 = QLabel('Dub or Sub:')
         self.verComboBox = QComboBox()
         self.verComboBox.addItems(['Sub', 'Dub'])
         self.verComboBox.setCurrentText('Sub')  # Set default value to Sub
-        hbox3.addWidget(lbl3)
-        hbox3.addWidget(self.verComboBox)
-        
+        vbox.addLayout(self.create_label_combobox_pair('Dub or Sub:', self.verComboBox))
+
         # Quality Selection (1080, 720, 480, 360)
-        hbox4 = QHBoxLayout()
-        lbl4 = QLabel('Quality:')
         self.qualityComboBox = QComboBox()
         self.qualityComboBox.addItems(['1080', '720', '480', '360'])
         self.qualityComboBox.setCurrentText('1080')  # Set default value to 1080
-        hbox4.addWidget(lbl4)
-        hbox4.addWidget(self.qualityComboBox)
+        vbox.addLayout(self.create_label_combobox_pair('Quality:', self.qualityComboBox))
+
+        # Max Workers Selection
+        self.maxWorkersComboBox = QComboBox()
+        self.maxWorkersComboBox.addItems([str(i) for i in range(1,9)])  # Options for max threads
+        self.maxWorkersComboBox.setCurrentText('5')  # Default max workers
+        vbox.addLayout(self.create_label_combobox_pair('Max Workers:', self.maxWorkersComboBox))
 
         # Search Button
-        self.searchBtn = QPushButton('Search', self)
+        self.searchBtn = QPushButton('Search')
         self.searchBtn.clicked.connect(self.search_anime)
-        
+        vbox.addWidget(self.searchBtn)
+
         # Anime Selection ComboBox
-        self.animeComboBox = QComboBox(self)
-        
+        vbox.addWidget(QLabel('Select Anime:'))
+        self.animeComboBox = QComboBox()
+        vbox.addWidget(self.animeComboBox)
+
         # Create Playlist Button
-        self.createBtn = QPushButton('Create Playlist', self)
+        self.createBtn = QPushButton('Create Playlist')
         self.createBtn.clicked.connect(self.create_playlist)
+        vbox.addWidget(self.createBtn)
 
         # Progress
-        self.progress = QProgressBar(self)
+        self.progress = QProgressBar()
         self.progress.setMinimum(0)
         self.progress.setMaximum(100)
-        
-        # Output
-        self.output = QTextEdit(self)
-        self.output.setReadOnly(True)
-
-        # Add layouts to the main layout
-        vbox.addLayout(hbox1)
-        vbox.addLayout(hbox2)
-        vbox.addLayout(hbox3)
-        vbox.addLayout(hbox4)
-        vbox.addWidget(self.searchBtn)
-        vbox.addWidget(QLabel('Select Anime:'))
-        vbox.addWidget(self.animeComboBox)
-        vbox.addWidget(self.createBtn)
         vbox.addWidget(self.progress)
+
+        # Output
+        self.output = QTextEdit()
+        self.output.setReadOnly(True)
         vbox.addWidget(self.output)
 
         # Quit Button
-        self.quitBtn = QPushButton('Quit', self)
+        self.quitBtn = QPushButton('Quit')
         self.quitBtn.clicked.connect(QApplication.quit)
-        vbox.addWidget(self.quitBtn)  # Add quit button at the end
-        
+        vbox.addWidget(self.quitBtn)
+
         self.setLayout(vbox)
-        
         self.setWindowTitle('Anime Playlist Creator')
         self.setGeometry(300, 300, 600, 400)
         self.show()
+
+
+    def create_label_edit_pair(self, label_text, line_edit):
+        hbox = QHBoxLayout()
+        lbl = QLabel(label_text)
+        hbox.addWidget(lbl)
+        hbox.addWidget(line_edit)
+        return hbox
+
+    def create_label_combobox_pair(self, label_text, combobox):
+        hbox = QHBoxLayout()
+        lbl = QLabel(label_text)
+        hbox.addWidget(lbl)
+        hbox.addWidget(combobox)
+        return hbox
 
     def search_anime(self):
         name = self.nameEdit.text()
         self.output.clear()
         self.output.append("Searching for anime...\n")
-        
+
         # Initial Search
         searchResults = self.provider.get_search(name)
         if not searchResults:
-            self.output.append("No results found.")
+            self.output.append(f'No anime with name "{name}" found!')
             QMessageBox.critical(self, "No Results", f'No anime with name "{name}" found!')
             return
-        
+
         # Populate ComboBox with search results
         self.anime_list = []
         self.animeComboBox.clear()
@@ -164,7 +166,7 @@ class AnimeDownloaderGUI(QWidget):
             anime = Anime(self.provider, r.name, r.identifier, r.languages)
             self.anime_list.append(anime)
             self.animeComboBox.addItem(anime.name)
-        
+
         self.output.append("Search complete. Select an anime from the dropdown menu.\n")
 
     def create_playlist(self):
@@ -174,7 +176,7 @@ class AnimeDownloaderGUI(QWidget):
         except IndexError:
             QMessageBox.critical(self, "No Selection", "No anime selected!")
             return
-        
+
         try:
             season = int(self.seasonEdit.text())
         except ValueError:
@@ -188,10 +190,13 @@ class AnimeDownloaderGUI(QWidget):
 
         ver = True if ver == 'dub' else False
 
+        max_workers = int(self.maxWorkersComboBox.currentText())
+        self.thread_pool.setMaxThreadCount(max_workers)
+
         self.progress.setValue(0)
         self.output.clear()
         self.output.append("Selecting anime...\n")
-        
+
         selectedLanguage = LanguageTypeEnum.DUB if ('DUB' in [x.name for x in selectedAnime.languages]) and ver else LanguageTypeEnum.SUB
         worker = Worker(self, selectedAnime, season, ver, selectedLanguage)
         self.thread_pool.start(worker)
@@ -200,13 +205,13 @@ class AnimeDownloaderGUI(QWidget):
         episodes = selectedAnime.get_episodes(lang=selectedLanguage)
 
         # Gathering URLs
-        self.signals.update_output.emit("Gathering URLs...\n")
+        self.output.append("Gathering URLs...\n")
         eps = {}
         failed = []
 
         total_episodes = len(episodes)  # Total number of episodes
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self.thread_pool.maxThreadCount()) as executor:
             future_to_episode = {executor.submit(self.fetch_episode, selectedAnime, e, selectedLanguage): e for e in episodes}
             for future in concurrent.futures.as_completed(future_to_episode):
                 episode = future_to_episode[future]
@@ -217,7 +222,7 @@ class AnimeDownloaderGUI(QWidget):
                     else:
                         failed.append(ep_num)
                 except Exception as exc:
-                    self.signals.update_output.emit(f'Episode {episode} generated an exception: {exc}\n')
+                    self.output.append(f'Episode {episode} generated an exception: {exc}\n')
                     failed.append(episode)
 
                 progress_value = (len(eps) + len(failed)) / total_episodes * 100  # Update progress
@@ -225,21 +230,21 @@ class AnimeDownloaderGUI(QWidget):
 
         # Retry for failed episodes with GoGoProvider
         if failed:
-            self.signals.update_output.emit('Retrying failed episodes...\n')
+            self.output.append('Retrying failed episodes...\n')
             ggsr = self.ggp.get_search(selectedAnime.name)
             gga = []
             for r in ggsr:
                 ggsa = Anime(self.ggp, r.name, r.identifier, r.languages)
                 gga.append(ggsa)
-            
+
             if not gga:
                 QMessageBox.warning(self, "Anime Not Found", "Selected anime not found on GoGoProvider.")
                 return
-            
+
             ggsa = gga[0]
             selectedLanguage = LanguageTypeEnum.DUB if ('DUB' in [x.name for x in ggsa.languages]) and ver else LanguageTypeEnum.SUB
 
-            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=self.thread_pool.maxThreadCount()) as executor:
                 future_to_episode = {executor.submit(self.fetch_episode, ggsa, e, selectedLanguage): e for e in failed}
                 newFail = []
                 for future in concurrent.futures.as_completed(future_to_episode):
@@ -251,14 +256,14 @@ class AnimeDownloaderGUI(QWidget):
                         else:
                             newFail.append(ep_num)
                     except Exception as exc:
-                        self.signals.update_output.emit(f'Episode {episode} generated an exception: {exc}\n')
+                        self.output.append(f'Episode {episode} generated an exception: {exc}\n')
                         newFail.append(episode)
 
                     progress_value = (len(eps) + len(newFail)) / total_episodes * 100  # Update progress
                     self.signals.update_progress.emit(int(progress_value))
 
             if newFail:
-                self.signals.update_output.emit(f'New Fails: {newFail}\n')
+                self.output.append(f'New Fails: {newFail}\n')
                 QMessageBox.warning(self, "Failed Episodes", f"Failed to retrieve episodes: {newFail}")
                 return
 
@@ -309,7 +314,7 @@ class AnimeDownloaderGUI(QWidget):
 
     @pyqtSlot(int)
     def update_progress_bar(self, value):
-        self.progress.setValue(int(value))
+        self.progress.setValue(value)
 
     @pyqtSlot(str)
     def update_output_text(self, text):

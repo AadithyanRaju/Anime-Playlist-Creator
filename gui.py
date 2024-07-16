@@ -1,9 +1,11 @@
 import sys
 import os
 import concurrent.futures
-from PyQt5.QtWidgets import (QApplication, QWidget, QLabel, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout, QTextEdit, QProgressBar, QMessageBox, QComboBox)
+from PyQt5.QtWidgets import (
+    QApplication, QWidget, QLabel, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout, QTextEdit, QProgressBar, QMessageBox, QComboBox
+)
 from PyQt5.QtGui import QFont
-from PyQt5.QtCore import Qt, QObject, pyqtSignal
+from PyQt5.QtCore import Qt, QObject, pyqtSignal, pyqtSlot, QRunnable, QThreadPool
 from anipy_api.provider.providers.yugen_provider import YugenProvider
 from anipy_api.provider.providers.gogo_provider import GoGoProvider
 from anipy_api.anime import Anime
@@ -17,22 +19,22 @@ def titleGen(index, letter='E'):
 def removeSymbols(string):
     return ''.join(e for e in string if e.isalnum() or e.isspace())
 
-def fetch_episode(selectedAnime, e, selectedLanguage, signals):
-    try:
-        video = selectedAnime.get_video(
-            episode=e,
-            lang=selectedLanguage,
-            preferred_quality=1080
-        )
-        signals.update_output.emit(f'Episode {e} succeeded\n')
-        return e, video
-    except Exception as exc:
-        signals.update_output.emit(f'Episode {e} failed: {exc}\n')
-        return e, None
-
 class WorkerSignals(QObject):
     update_progress = pyqtSignal(int)
     update_output = pyqtSignal(str)
+
+class Worker(QRunnable):
+    def __init__(self, anime_downloader_gui, anime, season, ver, selected_language):
+        super().__init__()
+        self.anime_downloader_gui = anime_downloader_gui
+        self.anime = anime
+        self.season = season
+        self.ver = ver
+        self.selected_language = selected_language
+
+    @pyqtSlot()
+    def run(self):
+        self.anime_downloader_gui.create_playlist_worker(self.anime, self.season, self.ver, self.selected_language)
 
 class AnimeDownloaderGUI(QWidget):
     def __init__(self):
@@ -46,6 +48,9 @@ class AnimeDownloaderGUI(QWidget):
 
         # Worker signals
         self.signals = WorkerSignals()
+        self.thread_pool = QThreadPool()
+        self.signals.update_progress.connect(self.update_progress_bar)
+        self.signals.update_output.connect(self.update_output_text)
 
     def initUI(self):
         # Font style for banners
@@ -53,14 +58,16 @@ class AnimeDownloaderGUI(QWidget):
         banner_font.setBold(True)
         banner_font.setPointSize(24)
 
-        # Banner Labels
-        banner_label1 = QLabel('ANIME PLAYLIST CREATOR')
-        banner_label1.setAlignment(Qt.AlignCenter)
-        banner_label1.setFont(banner_font)
+        # Banner Label
+        banner_label = QLabel('ANIME PLAYLIST CREATOR')
+        banner_label.setAlignment(Qt.AlignCenter)
+        banner_label.setFont(banner_font)
 
         # Layouts
         vbox = QVBoxLayout()
-        vbox.addWidget(banner_label1)
+
+        # Banner layout
+        vbox.addWidget(banner_label)
 
         # Anime Name
         hbox1 = QHBoxLayout()
@@ -73,7 +80,7 @@ class AnimeDownloaderGUI(QWidget):
         hbox2 = QHBoxLayout()
         lbl2 = QLabel('Season:')
         self.seasonEdit = QLineEdit()
-        self.seasonEdit.setText('1')
+        self.seasonEdit.setText('1')  # Set default value to 1
         hbox2.addWidget(lbl2)
         hbox2.addWidget(self.seasonEdit)
         
@@ -82,10 +89,19 @@ class AnimeDownloaderGUI(QWidget):
         lbl3 = QLabel('Dub or Sub:')
         self.verComboBox = QComboBox()
         self.verComboBox.addItems(['Sub', 'Dub'])
-        self.verComboBox.setCurrentText('Sub')
+        self.verComboBox.setCurrentText('Sub')  # Set default value to Sub
         hbox3.addWidget(lbl3)
         hbox3.addWidget(self.verComboBox)
         
+        # Quality Selection (1080, 720, 480, 360)
+        hbox4 = QHBoxLayout()
+        lbl4 = QLabel('Quality:')
+        self.qualityComboBox = QComboBox()
+        self.qualityComboBox.addItems(['1080', '720', '480', '360'])
+        self.qualityComboBox.setCurrentText('1080')  # Set default value to 1080
+        hbox4.addWidget(lbl4)
+        hbox4.addWidget(self.qualityComboBox)
+
         # Search Button
         self.searchBtn = QPushButton('Search', self)
         self.searchBtn.clicked.connect(self.search_anime)
@@ -96,7 +112,7 @@ class AnimeDownloaderGUI(QWidget):
         # Create Playlist Button
         self.createBtn = QPushButton('Create Playlist', self)
         self.createBtn.clicked.connect(self.create_playlist)
-        
+
         # Progress
         self.progress = QProgressBar(self)
         self.progress.setMinimum(0)
@@ -105,28 +121,29 @@ class AnimeDownloaderGUI(QWidget):
         # Output
         self.output = QTextEdit(self)
         self.output.setReadOnly(True)
-        
+
         # Add layouts to the main layout
         vbox.addLayout(hbox1)
         vbox.addLayout(hbox2)
         vbox.addLayout(hbox3)
+        vbox.addLayout(hbox4)
         vbox.addWidget(self.searchBtn)
         vbox.addWidget(QLabel('Select Anime:'))
         vbox.addWidget(self.animeComboBox)
         vbox.addWidget(self.createBtn)
         vbox.addWidget(self.progress)
         vbox.addWidget(self.output)
+
+        # Quit Button
+        self.quitBtn = QPushButton('Quit', self)
+        self.quitBtn.clicked.connect(QApplication.quit)
+        vbox.addWidget(self.quitBtn)  # Add quit button at the end
         
         self.setLayout(vbox)
         
         self.setWindowTitle('Anime Playlist Creator')
         self.setGeometry(300, 300, 600, 400)
         self.show()
-
-        # Quit Button
-        self.quitBtn = QPushButton('Quit', self)
-        self.quitBtn.clicked.connect(self.close)
-        vbox.addWidget(self.quitBtn)
 
     def search_anime(self):
         name = self.nameEdit.text()
@@ -136,6 +153,7 @@ class AnimeDownloaderGUI(QWidget):
         # Initial Search
         searchResults = self.provider.get_search(name)
         if not searchResults:
+            self.output.append("No results found.")
             QMessageBox.critical(self, "No Results", f'No anime with name "{name}" found!')
             return
         
@@ -175,21 +193,19 @@ class AnimeDownloaderGUI(QWidget):
         self.output.append("Selecting anime...\n")
         
         selectedLanguage = LanguageTypeEnum.DUB if ('DUB' in [x.name for x in selectedAnime.languages]) and ver else LanguageTypeEnum.SUB
+        worker = Worker(self, selectedAnime, season, ver, selectedLanguage)
+        self.thread_pool.start(worker)
+
+    def create_playlist_worker(self, selectedAnime, season, ver, selectedLanguage):
         episodes = selectedAnime.get_episodes(lang=selectedLanguage)
 
         # Gathering URLs
-        self.output.append("Gathering URLs...\n")
+        self.signals.update_output.emit("Gathering URLs...\n")
         eps = {}
         failed = []
 
-        def update_progress(value):
-            self.signals.update_progress.emit(value)
-
-        def update_output(text):
-            self.signals.update_output.emit(text)
-
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-            future_to_episode = {executor.submit(fetch_episode, selectedAnime, e, selectedLanguage, self.signals): e for e in episodes}
+            future_to_episode = {executor.submit(self.fetch_episode, selectedAnime, e, selectedLanguage): e for e in episodes}
             for future in concurrent.futures.as_completed(future_to_episode):
                 episode = future_to_episode[future]
                 try:
@@ -199,78 +215,103 @@ class AnimeDownloaderGUI(QWidget):
                     else:
                         failed.append(ep_num)
                 except Exception as exc:
-                    update_output(f'Episode {episode} generated an exception: {exc}\n')
+                    self.signals.update_output.emit(f'Episode {episode} generated an exception: {exc}\n')
                     failed.append(episode)
 
                 progress_value = len(eps) / len(episodes) * 100
-                update_progress(progress_value)
+                self.signals.update_progress.emit(progress_value)
 
-        # Retry for failed episodes
+        # Retry for failed episodes with GoGoProvider
         if failed:
-            update_output(f'Failed: {failed}\n')
-            update_output("Retrying Failed\n")
+            self.signals.update_output.emit('Retrying failed episodes...\n')
             ggsr = self.ggp.get_search(selectedAnime.name)
             gga = []
-            g = None
             for r in ggsr:
-                gga.append(Anime(self.ggp, r.name, r.identifier, r.languages))
-            for i in range(len(gga)):
-                if gga[i].name == selectedAnime.name and (selectedLanguage in gga[i].languages):
-                    g = i
-                    break
+                ggsa = Anime(self.ggp, r.name, r.identifier, r.languages)
+                gga.append(ggsa)
+            
+            if not gga:
+                QMessageBox.warning(self, "Anime Not Found", "Selected anime not found on GoGoProvider.")
+                return
+            
+            ggsa = gga[0]
+            selectedLanguage = LanguageTypeEnum.DUB if ('DUB' in [x.name for x in ggsa.languages]) and ver else LanguageTypeEnum.SUB
 
-            newFail = []
-            if failed and g is not None:
-                ggsa = gga[g]
-                ggsl = LanguageTypeEnum.DUB if ('DUB' in [x.name for x in ggsa.languages]) and ver else LanguageTypeEnum.SUB
-                ggeps = ggsa.get_episodes(lang=ggsl)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                future_to_episode = {executor.submit(self.fetch_episode, ggsa, e, selectedLanguage): e for e in failed}
+                newFail = []
+                for future in concurrent.futures.as_completed(future_to_episode):
+                    episode = future_to_episode[future]
+                    try:
+                        ep_num, result = future.result()
+                        if result:
+                            eps[ep_num] = result
+                        else:
+                            newFail.append(ep_num)
+                    except Exception as exc:
+                        self.signals.update_output.emit(f'Episode {episode} generated an exception: {exc}\n')
+                        newFail.append(episode)
 
-            if failed and g is not None:
-                with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-                    future_to_episode = {executor.submit(fetch_episode, ggsa, e, selectedLanguage, self.signals): e for e in failed}
-                    for future in concurrent.futures.as_completed(future_to_episode):
-                        episode = future_to_episode[future]
-                        try:
-                            ep_num, result = future.result()
-                            if result:
-                                eps[ep_num] = result
-                            else:
-                                newFail.append(ep_num)
-                        except Exception as exc:
-                            update_output(f'Episode {episode} generated an exception: {exc}\n')
-                            newFail.append(episode)
-
-                        progress_value = len(eps) / len(episodes) * 100
-                        update_progress(progress_value)
+                    progress_value = len(eps) / len(episodes) * 100
+                    self.signals.update_progress.emit(progress_value)
 
             if newFail:
-                update_output(f"New Fails: {newFail}\n")
+                self.signals.update_output.emit(f'New Fails: {newFail}\n')
+                QMessageBox.warning(self, "Failed Episodes", f"Failed to retrieve episodes: {newFail}")
                 return
 
-        # Setting array of URL
-        urlArr = [eps[e].url for e in sorted(eps.keys())]
+        # Setting array of URLs
+        urlArr = [v.url for v in eps.values()]
         dubORsub = 'DUB' if ver else 'SUB'
         if len(urlArr) < 3:
+            QMessageBox.warning(self, "Too Few Episodes", "The selected anime has too few episodes to create a playlist.")
             return
+
         title = removeSymbols(selectedAnime.get_info().name)
+        file_path = f'{title} {titleGen(season, "S")} {dubORsub}.xspf'
 
         # Creating XSPF File
-        file_path = f'{title} {titleGen(season, "S")} {dubORsub}.xspf'
         with open(file_path, 'w') as f:
-            f.write(f'''<?xml version="1.0" encoding="UTF-8"?>\n<playlist xmlns="http://xspf.org/ns/0/" xmlns:vlc="http://www.videolan.org/vlc/playlist/ns/0/" version="1">\n    <title>{title} {titleGen(season, "S")}</title>\n    <trackList>''')
+            f.write(f'''<?xml version="1.0" encoding="UTF-8"?>
+<playlist xmlns="http://xspf.org/ns/0/" xmlns:vlc="http://www.videolan.org/vlc/playlist/ns/0/" version="1">
+    <title>{title} {titleGen(season, "S")}</title>
+    <trackList>''')
             for i, url in enumerate(urlArr):
-                f.write(f'''\n        <track>\n            <location>{url}</location>\n            <title>{titleGen(season, "S")} {titleGen(i)}</title>\n            <extension application="http://www.videolan.org/vlc/playlist/0">\n                <vlc:id>{i}</vlc:id>\n                <vlc:option>network-caching=1000</vlc:option>\n            </extension>\n        </track>''')
-            f.write('''\n    </trackList>\n</playlist>''')
+                f.write(f'''\n        <track>
+            <location>{url}</location>
+            <title>{titleGen(season, "S")} {titleGen(i)}</title>
+            <extension application="http://www.videolan.org/vlc/playlist/0">
+                <vlc:id>{i}</vlc:id>
+                <vlc:option>network-caching=1000</vlc:option>
+            </extension>
+        </track>''')
+            f.write('''\n    </trackList>
+</playlist>''')
 
-        update_output(f'Playlist created: {file_path}\n')
-        update_output('Open the file with VLC\n')
-        update_output(f'File Path: {os.path.abspath(file_path)}\n')
+        self.signals.update_output.emit(f'Playlist created: {file_path}\n')
+        self.signals.update_output.emit('Open the file with VLC\n')
+        self.signals.update_output.emit(f'File Path: {os.path.abspath(file_path)}\n')
 
+    def fetch_episode(self, anime, episode, language):
+        try:
+            result = anime.get_video(
+                episode=episode, 
+                lang=language,
+                preferred_quality=int(self.qualityComboBox.currentText())
+            )
+            self.signals.update_output.emit(f'Episode {episode} done\n')
+            return episode, result
+        except Exception as e:
+            self.signals.update_output.emit(f'Episode {episode} failed: {str(e)}\n')
+            return episode, None
+
+    @pyqtSlot(int)
     def update_progress_bar(self, value):
         self.progress.setValue(int(value))
 
+    @pyqtSlot(str)
     def update_output_text(self, text):
-        self.output.append(text)
+        self.output.append(text.strip())
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)

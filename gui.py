@@ -204,6 +204,8 @@ class AnimeDownloaderGUI(QWidget):
         eps = {}
         failed = []
 
+        total_episodes = len(episodes)  # Total number of episodes
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
             future_to_episode = {executor.submit(self.fetch_episode, selectedAnime, e, selectedLanguage): e for e in episodes}
             for future in concurrent.futures.as_completed(future_to_episode):
@@ -218,8 +220,8 @@ class AnimeDownloaderGUI(QWidget):
                     self.signals.update_output.emit(f'Episode {episode} generated an exception: {exc}\n')
                     failed.append(episode)
 
-                progress_value = len(eps) / len(episodes) * 100
-                self.signals.update_progress.emit(progress_value)
+                progress_value = (len(eps) + len(failed)) / total_episodes * 100  # Update progress
+                self.signals.update_progress.emit(int(progress_value))
 
         # Retry for failed episodes with GoGoProvider
         if failed:
@@ -252,8 +254,8 @@ class AnimeDownloaderGUI(QWidget):
                         self.signals.update_output.emit(f'Episode {episode} generated an exception: {exc}\n')
                         newFail.append(episode)
 
-                    progress_value = len(eps) / len(episodes) * 100
-                    self.signals.update_progress.emit(progress_value)
+                    progress_value = (len(eps) + len(newFail)) / total_episodes * 100  # Update progress
+                    self.signals.update_progress.emit(int(progress_value))
 
             if newFail:
                 self.signals.update_output.emit(f'New Fails: {newFail}\n')

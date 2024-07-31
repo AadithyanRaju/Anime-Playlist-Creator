@@ -1,9 +1,7 @@
 import sys
 import os
 import concurrent.futures
-from PyQt5.QtWidgets import (
-    QApplication, QWidget, QLabel, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout, QTextEdit, QProgressBar, QMessageBox, QComboBox
-)
+from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout, QTextEdit, QProgressBar, QMessageBox, QComboBox, QCheckBox
 from PyQt5.QtGui import QFont
 from PyQt5.QtCore import Qt, QObject, pyqtSignal, pyqtSlot, QThreadPool, QRunnable
 from anipy_api.provider.providers.yugen_provider import YugenProvider
@@ -24,17 +22,16 @@ class WorkerSignals(QObject):
     update_output = pyqtSignal(str)
 
 class Worker(QRunnable):
-    def __init__(self, anime_downloader_gui, anime, season, ver, selected_language):
+    def __init__(self, anime_downloader_gui, anime, ver, selected_language):
         super().__init__()
         self.anime_downloader_gui = anime_downloader_gui
         self.anime = anime
-        self.season = season
         self.ver = ver
         self.selected_language = selected_language
 
     @pyqtSlot()
     def run(self):
-        self.anime_downloader_gui.create_playlist_worker(self.anime, self.season, self.ver, self.selected_language)
+        self.anime_downloader_gui.create_playlist_worker(self.anime, self.ver, self.selected_language)
 
 class AnimeDownloaderGUI(QWidget):
     def __init__(self):
@@ -49,7 +46,7 @@ class AnimeDownloaderGUI(QWidget):
         # Worker signals
         self.signals = WorkerSignals()
         self.thread_pool = QThreadPool()
-        self.thread_pool.setMaxThreadCount(5)  # Default max threads
+        self.thread_pool.setMaxThreadCount(5)  
         self.signals.update_progress.connect(self.update_progress_bar)
         self.signals.update_output.connect(self.update_output_text)
 
@@ -74,10 +71,6 @@ class AnimeDownloaderGUI(QWidget):
         self.nameEdit = QLineEdit()
         vbox.addLayout(self.create_label_edit_pair('Enter Anime Name:', self.nameEdit))
 
-        # Season
-        self.seasonEdit = QLineEdit('1')
-        vbox.addLayout(self.create_label_edit_pair('Season:', self.seasonEdit))
-
         # Version (Dub/Sub)
         self.verComboBox = QComboBox()
         self.verComboBox.addItems(['Sub', 'Dub'])
@@ -95,6 +88,12 @@ class AnimeDownloaderGUI(QWidget):
         self.maxWorkersComboBox.addItems([str(i) for i in range(1,9)])  # Options for max threads
         self.maxWorkersComboBox.setCurrentText('5')  # Default max workers
         vbox.addLayout(self.create_label_combobox_pair('Max Workers:', self.maxWorkersComboBox))
+
+        # Dark Mode Toggle
+        self.darkModeToggle = QCheckBox("Dark Mode")
+        self.darkModeToggle.stateChanged.connect(self.toggle_dark_mode)
+        self.darkModeToggle.setChecked(True)
+        vbox.addWidget(self.darkModeToggle)
 
         # Search Button
         self.searchBtn = QPushButton('Search')
@@ -132,6 +131,32 @@ class AnimeDownloaderGUI(QWidget):
         self.setGeometry(300, 300, 600, 400)
         self.show()
 
+    def toggle_dark_mode(self):
+        if self.darkModeToggle.isChecked():
+            dark_stylesheet = """
+                QWidget {
+                    background-color: #2e2e2e;
+                    color: #ffffff;
+                }
+                QLineEdit, QComboBox, QTextEdit, QProgressBar, QLabel {
+                    background-color: #3e3e3e;
+                    color: #ffffff;
+                }
+                QPushButton {
+                    background-color: #5e5e5e;
+                    color: #ffffff;
+                }
+                QCheckBox::indicator {
+                    border: 1px solid #ffffff;
+                    background: #5e5e5e;
+                }
+                QCheckBox::indicator:checked {
+                    background: #9e9e9e;
+                }
+            """
+            self.setStyleSheet(dark_stylesheet)
+        else:
+            self.setStyleSheet("")
 
     def create_label_edit_pair(self, label_text, line_edit):
         hbox = QHBoxLayout()
@@ -177,11 +202,6 @@ class AnimeDownloaderGUI(QWidget):
             QMessageBox.critical(self, "No Selection", "No anime selected!")
             return
 
-        try:
-            season = int(self.seasonEdit.text())
-        except ValueError:
-            QMessageBox.critical(self, "Invalid Input", "Season must be an integer.")
-            return
 
         ver = self.verComboBox.currentText().lower()
         if ver not in ['dub', 'sub']:
@@ -198,10 +218,10 @@ class AnimeDownloaderGUI(QWidget):
         self.output.append("Selecting anime...\n")
 
         selectedLanguage = LanguageTypeEnum.DUB if ('DUB' in [x.name for x in selectedAnime.languages]) and ver else LanguageTypeEnum.SUB
-        worker = Worker(self, selectedAnime, season, ver, selectedLanguage)
+        worker = Worker(self, selectedAnime, ver, selectedLanguage)
         self.thread_pool.start(worker)
 
-    def create_playlist_worker(self, selectedAnime, season, ver, selectedLanguage):
+    def create_playlist_worker(self, selectedAnime, ver, selectedLanguage):
         episodes = selectedAnime.get_episodes(lang=selectedLanguage)
 
         # Gathering URLs
@@ -272,18 +292,18 @@ class AnimeDownloaderGUI(QWidget):
         dubORsub = 'DUB' if ver else 'SUB'
         
         title = removeSymbols(selectedAnime.get_info().name)
-        file_path = f'{title} {titleGen(season, "S")} {dubORsub}.xspf'
+        file_path = f'{title} {dubORsub}.xspf'
 
         # Creating XSPF File
         with open(file_path, 'w') as f:
             f.write(f'''<?xml version="1.0" encoding="UTF-8"?>
 <playlist xmlns="http://xspf.org/ns/0/" xmlns:vlc="http://www.videolan.org/vlc/playlist/ns/0/" version="1">
-    <title>{title} {titleGen(season, "S")}</title>
+    <title>{title}</title>
     <trackList>''')
             for i, url in enumerate(urlArr):
                 f.write(f'''\n        <track>
             <location>{url}</location>
-            <title>{titleGen(season, "S")} {titleGen(i)}</title>
+            <title>{titleGen(i)}</title>
             <extension application="http://www.videolan.org/vlc/playlist/0">
                 <vlc:id>{i}</vlc:id>
                 <vlc:option>network-caching=1000</vlc:option>

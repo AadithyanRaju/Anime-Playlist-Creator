@@ -81,7 +81,7 @@ class AnimeDownloaderGUI(QWidget):
         self.qualityComboBox = QComboBox()
         self.qualityComboBox.addItems(['1080', '720', '480', '360'])
         self.qualityComboBox.setCurrentText('1080')  # Set default value to 1080
-        vbox.addLayout(self.create_label_combobox_pair('Quality:', self.qualityComboBox))
+        vbox.addLayout(self.create_label_combobox_pair('Max Quality:', self.qualityComboBox))
 
         # Max Workers Selection
         self.maxWorkersComboBox = QComboBox()
